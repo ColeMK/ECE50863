@@ -132,6 +132,7 @@ def config_handler(configFile):
                     if j !=2:
                         if j == 0:
                             graphDict[valueList[0]][valueList[1]] = valueList[2]
+                            print(valueList[0])
                         elif j == 1:
                             graphDict[valueList[1]][valueList[0]] = valueList[2]
     return totSwitch, graphDict
@@ -157,14 +158,6 @@ def dijkstra(graphDict, id, neighborDict, distances, paths, liveness):
             if k in tempGraphDict[id].keys():
                 if tempGraphDict[id][k]:
                     tempGraphDict[id].pop(k)
-    # bruh = tempGraphDict.copy()
-    # tempGraphDictKeys = bruh[id].keys()
-    # removeList = []
-    # for i in tempGraphDictKeys:
-    #     if i not in neighborDict[id]:
-    #         removeList.append(i)
-    # for i in removeList:
-        # tempGraphDict[id].pop(i)
             #tempGraphDict[id].pop(key)
     print(f"For id {id} Tempgraph after {tempGraphDict} and neightbor dict is {neighborDict}")
     ######################
@@ -198,7 +191,7 @@ def generateRoutingTable(graphDict, neighborDict, liveness):
 
     #Check our liveness if dead in liveness it should also be dead in neighbor dict already
     tempDict = graphDict.copy()
-    #print(liveness) ##########################
+    print(liveness) ##########################
     for liveID,value in liveness.items():
         if value[0] == 'Dead':
             tempDict.pop(liveID)
@@ -221,7 +214,7 @@ def generateRoutingTable(graphDict, neighborDict, liveness):
             elif len(shortestpaths[k]) > 1:
                 completeRouting[id][k] = [shortestpaths[k][1], routingtable[k]]
     for k,v in graphDict.items():
-        #print(f"complete routing is {completeRouting}")
+        print(f"complete routing is {completeRouting}")
         for key,value in completeRouting.items():
             if k not in completeRouting[key]:
                 for i,j in completeRouting.items():
@@ -283,20 +276,13 @@ def switchReciever(server_socket,idDict,liveness, graphDict, neighborDict):
             updateList = ast.literal_eval(msg[1])
             usedID = updateList[1]
             liveness[updateList[1]] = ["Alive", time.time()] #Updates the current id 
-            # for k,v in neighborDict[usedID].items():
-            #     print(f"ENTERED LIVENESS NeighborDict is {neighborDict[usedID]} and updateList is {updateList[0]}")
-            #     if k not in updateList[0].keys():
-            #         if neighborDict[usedID][k][0] == 1:
-            #             topoFlag = 1 # 1 is new dead
-            #             print(f"Topoflag set in dead")
-            #             topology_update_link_dead(updateList[1], k) #new death
-            #         neighborDict[usedID][k][0] = 0
-            #         if topoFlag == 1: 
-            #             print("IN SWITHC RECIEVER")
-            #             controllerTopologyUpdate(graphDict,idDict,server_socket,neighborDict, liveness)
+            print(updateList[0])
+            print(f"neightbor dict in switch is {neighborDict}")
+            print(f"Liveness is {liveness}")
             for k,v in updateList[0].items():
                 # I cant have it checking liveness in here for link deaths
                 if v[0] == "Dead" and liveness[k][0] == "Dead": #this might neede to update neighbordict instead
+                    print(neighborDict)
                     if neighborDict[usedID][k][0] == 1:
                         topoFlag = 1 # 1 is new dead
                         print(f"Topoflag set in dead")
@@ -307,7 +293,6 @@ def switchReciever(server_socket,idDict,liveness, graphDict, neighborDict):
                         topoFlag = 1
                         print(f"Topoflag set in alive {neighborDict}")
                     neighborDict[usedID][k][0] = 1
-                
                 #     if liveness[k][0] == "Alive":
                 #         topoFlag  = 1
                 #     liveness[k] = ["Dead", time.time()]
@@ -366,7 +351,6 @@ def main():
     idDict = {}
     neighborDict = {}
     overallNeighborDict = {}
-    nonNeighbors = {}
     while True:
         (data, client_addr) = server_socket.recvfrom(1024)
         msg = data.decode("utf-8")
@@ -375,23 +359,14 @@ def main():
             id = ast.literal_eval(msg[1])
             register_request_received(id)
             idDict[int(id)] = client_addr
-            if len(msg) > 2:
-                 nonNeighbors[id] = int(ast.literal_eval(msg[2]))
-        for k,v in nonNeighbors.items(): #This handles link failures
-            if v in graphDict[k]:
-                graphDict[k].pop(v)
+
         #-------------------- Handles the register response ---------------#
         if (len(idDict) == totSwitch) and (len(neighborDict) < 1):
             for key, value in idDict.items():
                 neighbors = graphDict[key].keys() ## this gets neighbors
                 neighborDict = {}
                 for x in list(neighbors):
-                   
-                    neighborDict[x] = [1,idDict[x]] # if 1 its alive\
-                    # if key in nonNeighbors.keys():
-                    #     if x == nonNeighbors[key]: #if made a list use in
-                    #         neighborDict.pop(x)
-                    #         topology_update_link_dead(key,x)
+                    neighborDict[x] = [1,idDict[x]] # if 1 its alive
                 overallNeighborDict[key] = neighborDict
                 responseDict = {"neighbors" : neighborDict, "address" : idDict[key]}
                 responseMessage = f"[Register Response]|{responseDict}"

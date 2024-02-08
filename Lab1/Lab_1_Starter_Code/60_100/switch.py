@@ -104,7 +104,6 @@ def sendTo(send_socket, msg,addr):
 def topoUpdate(socket,id, liveness,serverAddr):
     msgList = [liveness,id] #liveness and who its from
     msg = f"[LIVENESS]|{msgList}"
-    print(f"Liveness is {liveness}")
     sendTo(socket, msg, serverAddr) #Should send topology update to server
 
 #Run every 2 Seconds
@@ -218,19 +217,14 @@ def main():
     HOSTNAME = str(sys.argv[2])
     ID = int(sys.argv[1])
     HEADER =  64
-    DISCONNECTION = "!DISCONNECT" #if send to server will disconnect switch    
-    failingLink = {}
-    if num_args >= 6:
-        if sys.argv[4] == '-f':
-            failingLink[ID] = int(sys.argv[5])
+    DISCONNECTION = "!DISCONNECT" #if send to server will disconnect switch
+
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     addr = (HOSTNAME,PORT)
     print(f"Before sending data the socket address is {client_socket.getsockname()}")
     #client_socket.connect(addr)
 
     registerRequestMsg = f"[REGISTERREQUEST]|{ID}"
-    if num_args >= 6:
-        registerRequestMsg = registerRequestMsg + f"|{failingLink[ID]}"
     sendTo(client_socket, registerRequestMsg,addr)
     register_request_sent()
     (data, server_addr) = client_socket.recvfrom(1024)
@@ -241,9 +235,7 @@ def main():
     msgList = msg.split('|')
     neighbors = ast.literal_eval(msgList[1]) #This brings my dictionary in
     print(neighbors)
-    for k,v in failingLink.items():
-        if v in neighbors['neighbors']:
-            neighbors['neighbors'].pop(v)
+
     register_response_received()
 
     #-------------Recieve Topology--------------------#
