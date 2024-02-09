@@ -15,6 +15,7 @@ if __name__ == '__main__':
 	# Parse config file
 	cfg = configparser.RawConfigParser(allow_no_value=True)
 	cfg.read(config_path)
+	print(cfg)
 	sender_id = int(cfg.get('sender', 'id'))
 	file_to_send = cfg.get('nodes', 'file_to_send')
 	max_packet_size = int(cfg.get('network', 'MAX_PACKET_SIZE'))
