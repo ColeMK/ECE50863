@@ -6,7 +6,7 @@ import time
 import zlib
 import configparser
 import ast
-
+import threading
 # def compress_data(data):
 #     compressed_data = zlib.compress(data)
 #     return compressed_data
@@ -37,7 +37,11 @@ def divide_packets(filename, packet_size): #Creates each packet thing
 				break
 			packetList.append(packet)
 	return packetList,len(packetList)
-
+def write_to_file(buff_window, write_location):
+	with open(write_location, 'ab') as f:
+		for i,p in enumerate(buff_window):
+			#print(i)
+			f.write(p)
 if __name__ == '__main__':
 	#print("Receivier starting up!")
 	config_path = sys.argv[1]
@@ -53,9 +57,10 @@ if __name__ == '__main__':
 	file_to_send = cfg.get('nodes', 'file_to_send')
 	write_location = cfg.get('receiver','write_location')
 	max_packet_size = int(cfg.get('network', 'MAX_PACKET_SIZE'))
+	window_size = int(cfg.get('sender', 'window_size'))
 
 	packet_list, tot_packets = divide_packets(file_to_send, max_packet_size-8) #removed -8
-	#print(tot_packets)
+	print(tot_packets)
 	''' I could add something that checks that the packets are the same'''
 	curr_packet = 0
 	to_write = b''
@@ -65,6 +70,7 @@ if __name__ == '__main__':
 	#print(curr_packet)
 	ids_recieved = []
 	collected_packets = []
+	write_list = []
 	while curr_packet != (tot_packets): # may be -1
 		addr, data = recv_monitor.recv(max_packet_size)
 		# try:
@@ -77,40 +83,65 @@ if __name__ == '__main__':
 		data[0] = int(data[0].decode('utf-8'))
 		#print(data[0])
 		if int(data[0]) == curr_packet:
+			write_list.append(data[1])
 			ids_recieved.append(data[0])
 			#msg = f"ACK|{data[0]}"
-			#print(f"Sendign ACK: {msg}")
-			#msg = msg.encode('utf-8')
 			
+			#msg = msg.encode('utf-8')
+			if len(write_list) == window_size:
+				write_buffer = write_list
+				print(f"Sendign ACK: {curr_packet}")
+				write_thread = threading.Thread(target=write_to_file, args=(write_buffer, write_location))
+				write_thread.start()
+				write_list = []
+				msg = f"ACK|{curr_packet}"
+				msg = msg.encode('utf-8')
+				#for i in range(2):
+				recv_monitor.send(sender_id, msg)
 			#recv_monitor.send(sender_id, msg) #I dont think I need the b they had in their code
 			#to_write = to_write + data[1]
 			collected_packets.append(data[1])
 			#f.write(data[1])
 			curr_packet += 1
-		elif (int(data[0])<curr_packet):
-			curr_packet = int(data[0])
-			msg = f"ACK|{curr_packet}" #ACk lower packets
-			msg = msg.encode('utf-8')
-			recv_monitor.send(sender_id, msg)
-			collected_packets = collected_packets[:data[0]]
-			collected_packets.append(data[1])
-			curr_packet+=1
-		else: #data[0] in ids_recieved:#already recieved but out of order or ack drop
+			print(len(write_list))
+		# elif (int(data[0])<curr_packet):
+		# 	curr_packet = int(data[0])
+		# 	msg = f"ACK|{curr_packet}" #ACk lower packets
+		# 	msg = msg.encode('utf-8')
+		# 	recv_monitor.send(sender_id, msg)
+		# 	collected_packets = collected_packets[:data[0]]
+		# 	collected_packets.append(data[1])
+		# 	curr_packet+=1
+		elif data[0]>curr_packet: #data[0] in ids_recieved:#already recieved but out of order or ack drop
+			write_buffer = write_list
+			write_thread = threading.Thread(target=write_to_file, args=(write_buffer, write_location))
+			write_thread.start()
+			write_list = []
+			print(f"else statement {data[0]}")
 			msg = f"ACK|{curr_packet}" #Ack the same packet again
-			#print(f"already recieved,out order, or mustve dropped: {msg}")
+			print(f"already recieved,out order, or mustve dropped: {msg}")
 			msg = msg.encode('utf-8')
 			recv_monitor.send(sender_id, msg) #I dont think I need the b they had in their code
+	print("exited")
 	# Exit! Make sure the receiver ends before the sender. send_end will stop the emulator.
-	for packet in collected_packets:
-		to_write = to_write + packet
+	# for packet in collected_packets:
+	# 	to_write = to_write + packet
 		#print(type(packet))
-		
-	with open(write_location, 'w') as f:
-		f.write(to_write.decode('utf-8'))
-	recv_monitor.recv_end(write_location, sender_id)
-	#print(f"Ending: {time.time()}")
-	msg = 'END'
+	msg = f"ACK|{curr_packet-1}"
 	msg = msg.encode('utf-8')
 	recv_monitor.send(sender_id, msg)
+	with open(write_location, 'ab') as f:
+		for i,p in enumerate(write_list):
+			#print(i)
+			f.write(p)
+	# with open(write_location, 'w') as f:
+	# 	f.write(to_write.decode('utf-8'))
+	recv_monitor.recv_end(write_location, sender_id)
+	#print(f"Ending: {time.time()}")
+	while True:
+		msg = 'END'
+		msg = msg.encode('utf-8')
+		recv_monitor.send(sender_id, msg)
+		time.sleep(.01)
 	
 

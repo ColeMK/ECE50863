@@ -74,6 +74,7 @@ class send_packets:
 		self.window_size = window_size
 		self.max_packet_size = max_packet_size
 		self.to_send = self.window_size
+		self.to_send_temp = self.window_size
 		self.stop_thread = 0
 		self.timer_thread = None
 		self.send_thread = None
@@ -104,13 +105,13 @@ class send_packets:
 						#print(f"length of dict = {len(self.time_dict)}")
 						self.time_dict = {key: -1 for key in self.time_dict}
 						#print(f"length of dict = {len(self.time_dict)}")
-						#print(f'timeout {k}')
+						print(f'timeout {k}')
 						#stop the send thread
 						self.stop_thread = 1
 						self.send_thread.stop()
 						#self.send_thread.join()
-						self.to_send = self.window_size
-						self.to_do = k-1
+						self.to_send_temp = self.window_size
+						self.to_do = k
 						while self.send_thread.is_alive():
 							time.sleep(.001)
 						self.send_thread = SendThread(target=self.send_func)
@@ -123,6 +124,7 @@ class send_packets:
 		self.stop_thread = 0
 		#print("send Func")
 		self.sent_num = self.to_do #this reinitializes where we left off after timeout due to drop or out of order
+		self.to_send = self.to_send_temp
 		while True:
 			if self.stop_thread == 1 or self.done == 1:
 				#print("send func stopping")
@@ -135,7 +137,7 @@ class send_packets:
 				#print(f"Stop thread is: {self.stop_thread}")
 				#packet sending info
 				# on each packet sent -1
-				#print(f"Sent_num: {self.sent_num},{self.to_send}")
+				print(f"Sent_num: {self.sent_num},{self.to_send}")
 				self.current_packet = self.packet_list[self.sent_num]
 				self.curr_packet_id = self.sent_num
 				msg = (f"{self.curr_packet_id}|").encode('utf-8') + self.current_packet
@@ -144,7 +146,7 @@ class send_packets:
 				self.time_dict[self.curr_packet_id] = time.time()
 				self.sent_num += 1
 				self.to_send -= 1
-				time.sleep(.001)
+				time.sleep(.0001)
 		#print("leaving send")
 
 	def receiving_func(self):
@@ -163,7 +165,7 @@ class send_packets:
 			#print(data)
 			if data[0] == "END": 
 				time.sleep(.1)
-				#print(f"Ending: {time.time()}")
+				print(f"Ending: {time.time()}")
 				send_monitor.send_end(receiver_id)
 				break
 			packet_num = int(data[1])
@@ -177,15 +179,17 @@ class send_packets:
 					send_monitor.send_end(receiver_id)
 					break
 			if data[0] == "ACK": #cancels timeout on recieve of ACK
+				print(f"recieved ack {data[1]}")
 				curr_ack = int(packet_num)
 				if curr_ack == prev_ack and new == 0:
 					self.resend = curr_ack
 					new = 1
 				else:
 					new = 0
-				for i in range(packet_num):
+				for i in range(packet_num+1):
 					self.time_dict[i] = -1 
-				self.to_send += packet_num - last_packet
+				#self.to_send += packet_num - last_packet
+				self.to_send = self.window_size
 				last_packet = packet_num
 				if packet_num not in self.received_ack:
 					self.received_ack.append(packet_num)
@@ -228,7 +232,7 @@ if __name__ == '__main__':
 	# 	slack = .2
 	# else:
 	# 	slack = min(window_size * .02, 1)
-	slack = 1
+	slack = 2
 	#look at time to send though
 	RTT = 2*prop_delay + slack #wait time
 	packetList,totpackets = divide_packets(file_to_send, max_packet_size-8) # each packet should be a binary as I read binary got rid of -8

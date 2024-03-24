@@ -4,7 +4,7 @@ import sys
 import threading
 # Config File
 import configparser
-
+import time
 def divide_packets(filename, packet_size): #Creates each packet thing
 	packetList = []
 	with open(filename, 'rb') as f:
@@ -69,14 +69,17 @@ if __name__ == '__main__':
 	# Exit! Make sure the receiver ends before the sender. send_end will stop the emulator.
 	with open(write_location, 'w') as f:
 		f.write(to_write.decode('utf-8'))
-	msg = 'END'
-	msg = msg.encode('utf-8')
-	recv_monitor.send(sender_id, msg)
+	recv_monitor.recv_end(write_location, sender_id)
+	while True:
+		msg = 'END'
+		msg = msg.encode('utf-8')
+		recv_monitor.send(sender_id, msg)
+		time.sleep(.1)
 	# timer_thread = threading.Timer(RTT, send_end, args=(sender_id, msg))
 	# timer_thread.start()
 	# while True:
 	# 	addr, data = recv_monitor.recv(max_packet_size)
 	# 	if data.decode('utf-8') == 'END':
 	# 		break
-	recv_monitor.recv_end(write_location, sender_id)
+	
 
