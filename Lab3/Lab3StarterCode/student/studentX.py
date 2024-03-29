@@ -1,5 +1,5 @@
 from typing import List
-import math
+
 # Adapted from code by Zach Peats
 
 # ======================================================================================================================
@@ -62,64 +62,7 @@ class ClientMessage:
 # Your helper functions, variables, classes here. You may also write initialization routines to be called
 # when this script is first imported and anything else you wish.
 
-prev_Rk = [0]
-#Bk = 0
-time_horizon = 5
-c_list = [0]*time_horizon
-predicted_c_list = [0]*time_horizon
 
-def calc_QOE(bitrate, Bk, Ct, client_message: ClientMessage, prev_rate):
-	chunk_qual = client_message.quality_coefficient * bitrate 
-	variation_qual = client_message.variation_coefficient * math.fabs(bitrate - prev_rate)
-	# clean up if my first predicted throughput is not 0
-	if Ct != 0:
-		rebuffer_qual = client_message.rebuffering_coefficient * max(bitrate/Ct - Bk,0) # this needs changed
-		print(rebuffer_qual)
-	else:
-		rebuffer_qual = 0
-	qoe = chunk_qual - variation_qual - rebuffer_qual
-	return qoe
-
-def calc_MAPE(predicted_c, actual_c):
-	max_error = 0
-	for actual, predicted in zip(actual_c, predicted_c):
-		if actual != 0:
-			absolute_error = abs((actual - predicted) / actual)
-			max_error = max(max_error, absolute_error)
-	return max_error
-
-def robust_throughput_predictor(prev_throughput):
-
-	if prev_throughput == 0:
-		return 0
-	
-	c_list.append(prev_throughput)
-	c_list.pop(0)
-	#Calc MAPE
-	max_error = calc_MAPE(predicted_c_list, c_list)
-	# Calc harmonic mean divide length by reciprocals
-	# Cannot handle 0s so need a special case
-
-	# This setup current calculates the throughput from startup
-	# May change to not take throughput into account at startup to build a buffer.
-	count = 0
-	recip_sum = 0
-	for x in c_list:
-		if x != 0:
-			recip_sum += (1 / x)
-			count += 1
-	
-	h_mean = count / recip_sum
-
-	#This is the equation from the paper where we take the harmonic mean divided by MAPE
-	pred_throughput = h_mean/(1+max_error)
-
-	# append to predicted C list for MAPE
-	predicted_c_list.append(pred_throughput)
-	predicted_c_list.pop(0)
-
-	return pred_throughput
-	
 def student_entrypoint(client_message: ClientMessage):
 	"""
 	Your mission, if you choose to accept it, is to build an algorithm for chunk bitrate selection that provides
@@ -141,24 +84,4 @@ def student_entrypoint(client_message: ClientMessage):
 
 	:return: float Your quality choice. Must be one in the range [0 ... quality_levels - 1] inclusive.
 	"""
-	# Need a basis if test horizon is not full
-	# Adjustable horizon
-	# List that holds previous values
-	qoes = {}
-	predicted_c = robust_throughput_predictor(client_message.previous_throughput)
-	buffer_size  = client_message.buffer_seconds_until_empty
-	for i, bitrate in enumerate(client_message.quality_bitrates,0):
-		
-		
-
-		qoes[i]=calc_QOE(bitrate, buffer_size, predicted_c, client_message, prev_rate=prev_Rk[0])
-	
-	#print(qoes)
-	
-	qual_idx = max(qoes, key=qoes.get)
-	if (client_message.buffer_seconds_until_empty - client_message.buffer_seconds_per_chunk) <= 0:
-		qual_idx = 0
-	#print(qoes[qual_idx])
-	prev_Rk[0] = qoes[qual_idx]
-
-	return qual_idx  # Let's see what happens if we select the lowest bitrate every time
+	return client_message.quality_levels - 1  # Let's see what happens if we select the highest bitrate every time
