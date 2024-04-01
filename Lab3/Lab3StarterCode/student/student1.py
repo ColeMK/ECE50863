@@ -70,10 +70,10 @@ predicted_c_list = [0]*time_horizon
 
 def calc_QOE(bitrate, Bk, Ct, client_message: ClientMessage, prev_rate):
 	chunk_qual = client_message.quality_coefficient * bitrate 
-	variation_qual = client_message.variation_coefficient * math.fabs(bitrate - prev_rate)
+	variation_qual = client_message.variation_coefficient * math.fabs(bitrate - prev_rate) #maybe change to use index
 	# clean up if my first predicted throughput is not 0
 	if Ct != 0:
-		rebuffer_qual = client_message.rebuffering_coefficient * max(bitrate/Ct - Bk,0) # this needs changed
+		rebuffer_qual = client_message.rebuffering_coefficient * max(bitrate/Ct - Bk,0) # this needs changed we want to make this 0
 		print(rebuffer_qual)
 	else:
 		rebuffer_qual = 0
