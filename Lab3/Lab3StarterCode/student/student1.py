@@ -65,20 +65,28 @@ class ClientMessage:
 prev_Rk = [0]
 #Bk = 0
 time_horizon = 5
+window = 5
 c_list = [0]*time_horizon
 predicted_c_list = [0]*time_horizon
+global total_items
+total_items = 0
+curr_max = -9999
+buffer_fill = 0 # i need to fix this
 
-def calc_QOE(bitrate, Bk, Ct, client_message: ClientMessage, prev_rate):
-	chunk_qual = client_message.quality_coefficient * bitrate 
-	variation_qual = client_message.variation_coefficient * math.fabs(bitrate - prev_rate) #maybe change to use index
-	# clean up if my first predicted throughput is not 0
-	if Ct != 0:
-		rebuffer_qual = client_message.rebuffering_coefficient * max(bitrate/Ct - Bk,0) # this needs changed we want to make this 0
-		print(rebuffer_qual)
-	else:
-		rebuffer_qual = 0
-	qoe = chunk_qual - variation_qual - rebuffer_qual
-	return qoe
+
+############################ OLD CODE
+# def calc_QOE(bitrate, Bk, Ct, client_message: ClientMessage, prev_rate, quality_level):
+# 	chunk_qual = client_message.quality_coefficient * bitrate 
+# 	variation_qual = client_message.variation_coefficient * math.fabs(bitrate - prev_rate) #maybe change to use index
+# 	# clean up if my first predicted throughput is not 0
+# 	if Ct != 0:
+# 		rebuffer_qual = client_message.rebuffering_coefficient * max(bitrate/Ct - Bk,0) # this needs changed we want to make this 0
+# 		print(rebuffer_qual)
+# 	else:
+# 		rebuffer_qual = 0
+# 	qoe = chunk_qual - variation_qual - rebuffer_qual
+# 	return qoe
+# ######################################################
 
 def calc_MAPE(predicted_c, actual_c):
 	max_error = 0
@@ -119,7 +127,63 @@ def robust_throughput_predictor(prev_throughput):
 	predicted_c_list.pop(0)
 
 	return pred_throughput
-	
+#-------------------------------------------- QOE CALCS -----------------------------#
+def brute_force_func(partial_dict, depth, upcoming_levels):
+    global total_items
+    depth += 1
+    if depth == window or depth == len(upcoming_levels):
+        return
+    
+    for k,v in partial_dict.items():
+        total_items += 1
+        partial_dict[k] = {value: None for value in range(len(upcoming_levels[depth]))}
+        brute_force_func(partial_dict[k], depth, upcoming_levels)
+
+def update_bk(buffer_fill, encoded_qual, Ct, seconds_per_chunk, buffer_max):
+    dt = max((max(buffer_fill - ((encoded_qual)/Ct),0) + seconds_per_chunk - buffer_max),0)
+    b1 = max((max(buffer_fill - ((encoded_qual)/Ct),0) + seconds_per_chunk - dt),0)
+    return b1
+
+def buffer_qual(Ct, encoded_qual, bk):
+    #print(max(encoded_qual/Ct-bk,0))
+    return(max(encoded_qual/Ct-bk,0))
+
+def dict_rec(dictionary,val,prev, var, start, Ct, buffer_max, bk, buffer_comp, client_message: ClientMessage):
+    for k,v in dictionary.items():
+        if v != None:
+            if start == 0:
+                dict_rec(v, val+k, k, 0, 1, Ct, buffer_max,update_bk(buffer_fill=bk, encoded_qual=client_message.quality_bitrates[k], Ct=Ct, 
+                                                    seconds_per_chunk=client_message.buffer_seconds_per_chunk,buffer_max=buffer_max), 
+                                                    buffer_comp + buffer_qual(Ct,client_message.quality_bitrates[k], bk), client_message)
+            else:
+                #print(f"Key: {k}, var {var + abs(k-prev)}, start {start}")
+                dict_rec(v, val+k, k, var + abs(k-prev), start+1, Ct, buffer_max, update_bk(buffer_fill=bk, encoded_qual=client_message.upcoming_quality_bitrates[start-1][k], Ct=Ct, 
+                                                    seconds_per_chunk=client_message.buffer_seconds_per_chunk,buffer_max=buffer_max), 
+                                                    buffer_comp + buffer_qual(Ct,client_message.upcoming_quality_bitrates[start-1][k], bk), client_message)
+                
+        
+        else:
+            val_score = val + k
+            var_score = var + abs(k-prev)
+            buffer_score = buffer_comp + buffer_qual(Ct,client_message.upcoming_quality_bitrates[start-1][k], bk)
+            #print(val_score, var_score, buffer_score)
+            dictionary[k] = [val_score, var_score, buffer_score, client_message.quality_coefficient*val_score-client_message.variation_coefficient*var_score-client_message.rebuffering_coefficient*buffer_score]
+            
+def get_max_rate(dictionary, start, final_dict, top):
+    global curr_max
+    for k,v in dictionary.items():
+        if start == 0:
+            top = k
+        #print()
+        if type(v) == list:
+            #print(v[3])
+            if v[3] > final_dict['final'][1]:
+                final_dict['final'][1] = v[3]
+                final_dict['final'][0] = top
+                #print(final_dict)
+        else:
+            get_max_rate(v, start+1, final_dict, top)
+#-------------------------------------------------------------------------------------------------------------#		
 def student_entrypoint(client_message: ClientMessage):
 	"""
 	Your mission, if you choose to accept it, is to build an algorithm for chunk bitrate selection that provides
@@ -144,21 +208,58 @@ def student_entrypoint(client_message: ClientMessage):
 	# Need a basis if test horizon is not full
 	# Adjustable horizon
 	# List that holds previous values
-	qoes = {}
-	predicted_c = robust_throughput_predictor(client_message.previous_throughput)
+	quality_levels = client_message.quality_bitrates
+	upcoming_levels = client_message.upcoming_quality_bitrates
+	seconds_per_chunk = client_message.buffer_seconds_per_chunk
+	
+	buffer_max = client_message.buffer_max_size
 	buffer_size  = client_message.buffer_seconds_until_empty
-	for i, bitrate in enumerate(client_message.quality_bitrates,0):
-		
-		
 
-		qoes[i]=calc_QOE(bitrate, buffer_size, predicted_c, client_message, prev_rate=prev_Rk[0])
-	
-	#print(qoes)
-	
-	qual_idx = max(qoes, key=qoes.get)
-	if (client_message.buffer_seconds_until_empty - client_message.buffer_seconds_per_chunk) <= 0:
-		qual_idx = 0
-	#print(qoes[qual_idx])
-	prev_Rk[0] = qoes[qual_idx]
+	whole_dict = {}
+	Ct = robust_throughput_predictor(client_message.previous_throughput)
+	global buffer_fill
+	#print(buffer_fill)
+	global total_items
+	curr_max = -9999
+	#First part of initializing the dictionary for recursion
+	if Ct != 0:
+		if len(upcoming_levels) != 0:
+			for i in range(len(quality_levels)): #because we want the index
+				total_items += 1
+				depth = 0
+				#print(len(upcoming_levels))
+				
+				whole_dict[i] = {value: None for value in range(len(upcoming_levels[depth]))}
+				brute_force_func(whole_dict[i], depth, upcoming_levels)
+			dict_rec(dictionary=whole_dict, val=0,prev=0,var=0,start=0, Ct = Ct, buffer_max=buffer_max, bk = client_message.buffer_seconds_until_empty, buffer_comp=0, client_message=client_message)
+			
+			final_dict = {'final': [None, -9999]}
+			top = -1
+			start = 0
+			get_max_rate(dictionary=whole_dict, start = start, final_dict=final_dict, top = -1)
+			#print(whole_dict)
+			#print(final_dict)  
+		else:
+			final_dict = {'final': [2,None]}
 
-	return qual_idx  # Let's see what happens if we select the lowest bitrate every time
+
+
+		# for i, bitrate in enumerate(client_message.quality_bitrates):
+			
+			
+
+		# 	qoes[i]=calc_QOE(bitrate, buffer_size, predicted_c, client_message, prev_rate=prev_Rk[0], quality_level = i)
+		
+		# #print(qoes)
+		
+		# qual_idx = max(qoes, key=qoes.get)
+		# if (client_message.buffer_seconds_until_empty - client_message.buffer_seconds_per_chunk) <= 0:
+		# 	qual_idx = 0
+		# #print(qoes[qual_idx])
+		#prev_Rk[0] = qoes[qual_idx]
+		buffer_fill = update_bk(buffer_fill, client_message.quality_bitrates[final_dict['final'][0]], Ct, seconds_per_chunk, buffer_max) #not used
+		return final_dict['final'][0]  # Let's see what happens if we select the lowest bitrate every time
+
+	else: 
+            buffer_fill +=1
+            return 0
