@@ -218,7 +218,7 @@ def student_entrypoint(client_message: ClientMessage):
 	whole_dict = {}
 	Ct = robust_throughput_predictor(client_message.previous_throughput)
 	global buffer_fill
-	print(buffer_fill)
+	#print(buffer_fill)
 	global total_items
 	curr_max = -9999
 	#First part of initializing the dictionary for recursion
@@ -227,18 +227,18 @@ def student_entrypoint(client_message: ClientMessage):
 			for i in range(len(quality_levels)): #because we want the index
 				total_items += 1
 				depth = 0
-				print(len(upcoming_levels))
+				#print(len(upcoming_levels))
 				
 				whole_dict[i] = {value: None for value in range(len(upcoming_levels[depth]))}
 				brute_force_func(whole_dict[i], depth, upcoming_levels)
-			dict_rec(dictionary=whole_dict, val=0,prev=0,var=0,start=0, Ct = Ct, buffer_max=buffer_max, bk = buffer_fill, buffer_comp=0, client_message=client_message)
+			dict_rec(dictionary=whole_dict, val=0,prev=0,var=0,start=0, Ct = Ct, buffer_max=buffer_max, bk = client_message.buffer_seconds_until_empty, buffer_comp=0, client_message=client_message)
 			
 			final_dict = {'final': [None, -9999]}
 			top = -1
 			start = 0
 			get_max_rate(dictionary=whole_dict, start = start, final_dict=final_dict, top = -1)
 			#print(whole_dict)
-			print(final_dict)  
+			#print(final_dict)  
 		else:
 			final_dict = {'final': [2,None]}
 
@@ -257,7 +257,7 @@ def student_entrypoint(client_message: ClientMessage):
 		# 	qual_idx = 0
 		# #print(qoes[qual_idx])
 		#prev_Rk[0] = qoes[qual_idx]
-		buffer_fill = update_bk(buffer_fill, client_message.quality_bitrates[final_dict['final'][0]], Ct, seconds_per_chunk, buffer_max)
+		buffer_fill = update_bk(buffer_fill, client_message.quality_bitrates[final_dict['final'][0]], Ct, seconds_per_chunk, buffer_max) #not used
 		return final_dict['final'][0]  # Let's see what happens if we select the lowest bitrate every time
 
 	else: 
