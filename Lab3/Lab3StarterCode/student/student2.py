@@ -63,6 +63,43 @@ class ClientMessage:
 # when this script is first imported and anything else you wish.
 
 
+
+def bitrate_map(buffer_size, bitrate_options, current_bitrate, reservoir, upper_reservoir):
+	Rmin = bitrate_options[0]
+	Rmax = bitrate_options[1]
+	linear_slope = (Rmax - Rmin) / (upper_reservoir - reservoir)
+
+	if buffer_size < reservoir: #if the buffer is within the reservoir return Rmin
+		return Rmin
+	if reservoir <= buffer_size and buffer_size < upper_reservoir: #linear within cushion
+		# F(B) - Rmin = m(B - r)
+		# -> F(B) = mB - mr + Rmin
+		f_b = linear_slope * buffer_size - linear_slope * reservoir + Rmin
+
+		#Keep the current bitrate if F(B) is between chunk- and chunk+
+		if current_bitrate in bitrate_options:
+			curr_idx = bitrate_options.index(current_bitrate)
+			chunk_minus = bitrate_options[curr_idx-1] if curr_idx > 0 else float('-inf')
+			chunk_plus = bitrate_options[curr_idx+1] if curr_idx < len(bitrate_options)-1 else float('inf')
+			if chunk_minus < f_b and f_b < chunk_plus:
+
+				return current_bitrate
+		
+		#If F(B) is past either chunk- or chunk+ (or no longer in the list) map to the nearest option
+		min_dist = float('inf')
+		closest_bitrate = None
+		for bitrate in bitrate_options:
+			dist = abs(bitrate - f_b)
+			if dist < min_dist:
+				min_dist = dist
+				closest_bitrate = bitrate
+		return closest_bitrate
+	else: #if the buffer is within the upper reservoir return Rmax
+		return Rmax
+		
+
+previous_bitrate = [0]
+
 def student_entrypoint(client_message: ClientMessage):
 	"""
 	Your mission, if you choose to accept it, is to build an algorithm for chunk bitrate selection that provides
@@ -84,4 +121,20 @@ def student_entrypoint(client_message: ClientMessage):
 
 	:return: float Your quality choice. Must be one in the range [0 ... quality_levels - 1] inclusive.
 	"""
-	return client_message.quality_levels - 1  # Let's see what happens if we select the highest bitrate every time
+	
+	
+	Bmax = client_message.buffer_max_size
+	reservoir = 0.25 * Bmax
+	upper_reservoir = 0.8 * Bmax
+	p = previous_bitrate[0]
+	mapping = bitrate_map(buffer_size=client_message.buffer_seconds_until_empty, 
+					   bitrate_options=client_message.quality_bitrates,
+					   current_bitrate=previous_bitrate[0], 
+					   reservoir=reservoir, upper_reservoir=upper_reservoir)
+	previous_bitrate[0]=mapping
+
+	print(f"bitrates (KB): {client_message.quality_bitrates}")
+	print(f"buffer: {client_message.buffer_seconds_until_empty}/{client_message.buffer_max_size}")
+	print(f"previous: {p}, selecting {mapping}")
+
+	return client_message.quality_bitrates.index(mapping)
