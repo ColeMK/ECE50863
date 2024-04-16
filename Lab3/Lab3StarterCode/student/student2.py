@@ -62,11 +62,40 @@ class ClientMessage:
 # Your helper functions, variables, classes here. You may also write initialization routines to be called
 # when this script is first imported and anything else you wish.
 
+def map_to_nearest_option(value, options):
+	min_dist = float('inf')
+	closest_option = None
+	for options in options:
+		dist = abs(options - value)
+		if dist < min_dist:
+			min_dist = dist
+			closest_option = options
+	return closest_option
 
+
+def calculate_reservoir(V, Bmax, future_bitrates):
+	if len(future_bitrates) == 0:
+		return 0
+
+	chunks_to_lookahead = int((2 * Bmax) / V)
+	if chunks_to_lookahead > len(future_bitrates):
+		chunks_to_lookahead = len(future_bitrates)
+
+	buffer_gain = 0
+	for chunk in range(chunks_to_lookahead):
+		buffer_gain += future_bitrates[chunk][0]
+	
+	r = 2 * (buffer_gain - V * chunks_to_lookahead) / chunks_to_lookahead
+	if r > 0:
+		return 0
+	else:
+		return abs(r)
+
+	
 
 def bitrate_map(buffer_size, bitrate_options, current_bitrate, reservoir, upper_reservoir):
 	Rmin = bitrate_options[0]
-	Rmax = bitrate_options[1]
+	Rmax = bitrate_options[-1]
 	linear_slope = (Rmax - Rmin) / (upper_reservoir - reservoir)
 
 	if buffer_size < reservoir: #if the buffer is within the reservoir return Rmin
