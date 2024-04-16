@@ -73,9 +73,17 @@ def map_to_nearest_option(value, options):
 	return closest_option
 
 
-def calculate_reservoir(V, Bmax, future_bitrates):
+def calculate_reservoir(V, Bmax, future_bitrates, Rmin):
 	if len(future_bitrates) == 0:
 		return 0
+	
+	cuml_download_time = 0
+	chunk = 0
+	while cuml_download_time < 2*Bmax:
+		cuml_download_time += future_bitrates[chunk][0] / Rmin
+		chunk += 1
+	
+	
 
 	chunks_to_lookahead = int((2 * Bmax) / V)
 	if chunks_to_lookahead > len(future_bitrates):
@@ -85,7 +93,7 @@ def calculate_reservoir(V, Bmax, future_bitrates):
 	for chunk in range(chunks_to_lookahead):
 		buffer_gain += future_bitrates[chunk][0]
 	
-	r = 2 * (buffer_gain - V * chunks_to_lookahead) / chunks_to_lookahead
+	r =  (buffer_gain - V * chunks_to_lookahead) / chunks_to_lookahead
 	if r > 0:
 		return 0
 	else:
@@ -149,7 +157,7 @@ def student_entrypoint(client_message: ClientMessage):
 	Bmax = client_message.buffer_max_size
 	reservoir = 0.25 * Bmax
 	upper_reservoir = 0.8 * Bmax
-	#reservoir = calculate_reservoir(client_message.buffer_seconds_per_chunk, client_message.buffer_max_size, client_message.upcoming_quality_bitrates)
+	reservoir = calculate_reservoir(client_message.buffer_seconds_per_chunk, client_message.buffer_max_size, client_message.upcoming_quality_bitrates)
 	p = previous_bitrate[0]
 
 	f_b = bitrate_map(buffer_size=client_message.buffer_seconds_until_empty, 
@@ -163,9 +171,10 @@ def student_entrypoint(client_message: ClientMessage):
 		delta_B = client_message.buffer_seconds_until_empty - prev_buffer[0]
 		prev_buffer[0] = client_message.buffer_seconds_until_empty
 		if delta_B > 0.875 * client_message.buffer_seconds_per_chunk:
-			if previous_bitrate[0] > max(client_message.quality_bitrates):
+			if previous_bitrate[0] >= max(client_message.quality_bitrates):
 				selected_bitrate = map_to_nearest_option(previous_bitrate[0], client_message.quality_bitrates)
 			else:
+				#print(previous_bitrate, client_message.quality_bitrates)
 				greater_bitrates = [bitrate for bitrate in client_message.quality_bitrates if bitrate > previous_bitrate[0]]
 				selected_bitrate = greater_bitrates[0]
 		else:
