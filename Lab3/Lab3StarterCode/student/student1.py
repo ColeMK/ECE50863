@@ -163,11 +163,13 @@ def dict_rec(dictionary,val,prev, var, start, Ct, buffer_max, bk, buffer_comp, c
                 
         
         else:
+            e = 1e-6
             val_score = val + k
             var_score = var + abs(k-prev)
             buffer_score = buffer_comp + buffer_qual(Ct,client_message.upcoming_quality_bitrates[start-1][k], bk)
             #print(val_score, var_score, buffer_score)
-            dictionary[k] = [val_score, var_score, buffer_score, client_message.quality_coefficient*val_score-client_message.variation_coefficient*var_score-client_message.rebuffering_coefficient*buffer_score]
+            overall_score = client_message.quality_coefficient*(val_score)-client_message.variation_coefficient*(var_score)-client_message.rebuffering_coefficient*(buffer_score)
+            dictionary[k] = [val_score, var_score, buffer_score, overall_score]
             
 def get_max_rate(dictionary, start, final_dict, top):
     global curr_max

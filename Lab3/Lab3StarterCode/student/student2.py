@@ -66,7 +66,7 @@ class ClientMessage:
 
 def bitrate_map(buffer_size, bitrate_options, current_bitrate, reservoir, upper_reservoir):
 	Rmin = bitrate_options[0]
-	Rmax = bitrate_options[1]
+	Rmax = bitrate_options[-1]
 	linear_slope = (Rmax - Rmin) / (upper_reservoir - reservoir)
 
 	if buffer_size < reservoir: #if the buffer is within the reservoir return Rmin
