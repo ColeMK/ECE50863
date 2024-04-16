@@ -62,7 +62,36 @@ class ClientMessage:
 # Your helper functions, variables, classes here. You may also write initialization routines to be called
 # when this script is first imported and anything else you wish.
 
+def map_to_nearest_option(value, options):
+	min_dist = float('inf')
+	closest_option = None
+	for options in options:
+		dist = abs(options - value)
+		if dist < min_dist:
+			min_dist = dist
+			closest_option = options
+	return closest_option
 
+
+def calculate_reservoir(V, Bmax, future_bitrates):
+	if len(future_bitrates) == 0:
+		return 0
+
+	chunks_to_lookahead = int((2 * Bmax) / V)
+	if chunks_to_lookahead > len(future_bitrates):
+		chunks_to_lookahead = len(future_bitrates)
+
+	buffer_gain = 0
+	for chunk in range(chunks_to_lookahead):
+		buffer_gain += future_bitrates[chunk][0]
+	
+	r = 2 * (buffer_gain - V * chunks_to_lookahead) / chunks_to_lookahead
+	if r > 0:
+		return 0
+	else:
+		return abs(r)
+
+	
 
 def bitrate_map(buffer_size, bitrate_options, current_bitrate, reservoir, upper_reservoir):
 	Rmin = bitrate_options[0]
@@ -86,19 +115,14 @@ def bitrate_map(buffer_size, bitrate_options, current_bitrate, reservoir, upper_
 				return current_bitrate
 		
 		#If F(B) is past either chunk- or chunk+ (or no longer in the list) map to the nearest option
-		min_dist = float('inf')
-		closest_bitrate = None
-		for bitrate in bitrate_options:
-			dist = abs(bitrate - f_b)
-			if dist < min_dist:
-				min_dist = dist
-				closest_bitrate = bitrate
-		return closest_bitrate
+		return map_to_nearest_option(f_b, bitrate_options)
 	else: #if the buffer is within the upper reservoir return Rmax
 		return Rmax
 		
 
-previous_bitrate = [0]
+previous_bitrate = [0.00001]
+startup = [True]
+prev_buffer = [0]
 
 def student_entrypoint(client_message: ClientMessage):
 	"""
@@ -121,20 +145,41 @@ def student_entrypoint(client_message: ClientMessage):
 
 	:return: float Your quality choice. Must be one in the range [0 ... quality_levels - 1] inclusive.
 	"""
-	
-	
+	selected_bitrate = None
 	Bmax = client_message.buffer_max_size
-	reservoir = 0.25 * Bmax
 	upper_reservoir = 0.8 * Bmax
+	reservoir = calculate_reservoir(client_message.buffer_seconds_per_chunk, client_message.buffer_max_size, client_message.upcoming_quality_bitrates)
 	p = previous_bitrate[0]
-	mapping = bitrate_map(buffer_size=client_message.buffer_seconds_until_empty, 
+
+	f_b = bitrate_map(buffer_size=client_message.buffer_seconds_until_empty, 
 					   bitrate_options=client_message.quality_bitrates,
 					   current_bitrate=previous_bitrate[0], 
 					   reservoir=reservoir, upper_reservoir=upper_reservoir)
-	previous_bitrate[0]=mapping
+	previous_bitrate[0]=f_b
 
-	print(f"bitrates (KB): {client_message.quality_bitrates}")
-	print(f"buffer: {client_message.buffer_seconds_until_empty}/{client_message.buffer_max_size}")
-	print(f"previous: {p}, selecting {mapping}")
+	#Startup
+	if startup[0]:
+		delta_B = client_message.buffer_seconds_until_empty - prev_buffer[0]
+		prev_buffer[0] = client_message.buffer_seconds_until_empty
+		if delta_B > 0.875 * client_message.buffer_seconds_per_chunk:
+			if previous_bitrate[0] > max(client_message.quality_bitrates):
+				selected_bitrate = map_to_nearest_option(previous_bitrate[0], client_message.quality_bitrates)
+			else:
+				greater_bitrates = [bitrate for bitrate in client_message.quality_bitrates if bitrate > previous_bitrate[0]]
+				selected_bitrate = greater_bitrates[0]
+		else:
+			selected_bitrate = map_to_nearest_option(previous_bitrate[0], client_message.quality_bitrates)
 
-	return client_message.quality_bitrates.index(mapping)
+		if delta_B < 0 or f_b > selected_bitrate:
+			startup[0] = False
+			selected_bitrate = f_b
+	else:
+		selected_bitrate = f_b
+	
+	
+
+	# print(f"bitrates (KB): {client_message.quality_bitrates}")
+	# print(f"buffer: {client_message.buffer_seconds_until_empty}/{client_message.buffer_max_size}")
+	# print(f"previous: {p}, selecting {mapping}")
+
+	return client_message.quality_bitrates.index(selected_bitrate)

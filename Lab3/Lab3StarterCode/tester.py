@@ -16,6 +16,7 @@ def main(student_algo: str):
     sum_qoe = 0
     print(f'\nTesting student algorithm {student_algo}')
     for test in os.listdir(TEST_DIRECTORY):
+        print(test)
         reload(simulator)
         quality, variation, rebuff, qoe = simulator.main(os.path.join(TEST_DIRECTORY, test), student_algo, False, False)
         print(f'\tTest {test: <12}:'
