@@ -84,7 +84,7 @@ def read_test(config_path: str, print_output: bool):
 # ======================================================================================================================
 # MAIN
 # ======================================================================================================================
-def main(config_file: str, student_algo, verbose: bool, print_output=True) -> Tuple[float, float, float, float]:
+def main(config_file: str, student_algo, verbose: bool, print_output=True, model_name="model.pth") -> Tuple[float, float, float, float]:
 	"""
 	Main loop. Runs the simulator with the given config file.
 	Args:

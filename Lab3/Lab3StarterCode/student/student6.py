@@ -72,14 +72,14 @@ TRAIN_PER_STEP = 3
 PLOT = False
 LOAD_MODEL = True
 SAVE_MODEL = True
-MODEL_PTH = os.path.join('models', 'mithru.pth')
+MODEL_PTH = os.path.join('models', 'hithru.pth')
 
 class Prediction_Buffer():
 	def __init__(self):
 		self.throughputs = []
 		self.buffer_capacities = []
 
-	def add_data(self, client_message, throughput_prediction, first=False):
+	def add_data(self, client_message, first=False):
 		if not first:
 			self.throughputs.append(client_message.previous_throughput)
 		self.buffer_capacities.append(client_message.buffer_seconds_until_empty)
@@ -91,6 +91,11 @@ class Prediction_Buffer():
 		next_throughputs = self.throughputs[rand_idx+THROUGHPUT_IN_SIZE:rand_idx+THROUGHPUT_IN_SIZE+THROUGHPUT_OUT_SIZE]
 
 		return torch.tensor(prior_throughputs), torch.tensor(next_throughputs)
+	
+	def get_sliding_average_throughput(self, window):
+		if len(self.throughputs) < window:
+			window = len(self.throughputs)
+		return sum(self.throughputs[-window:]) / window
 	
 	def get_most_recent_throughputs(self):
 		return torch.tensor(self.throughputs[-THROUGHPUT_IN_SIZE:])
@@ -149,10 +154,7 @@ hidden_size = 128  # Number of features in the hidden state
 
 # Model initialization
 model = Seq2Seq(input_size, output_size, hidden_size)
-if LOAD_MODEL:
-	if not os.path.exists(MODEL_PTH):
-		torch.save(model.state_dict(), MODEL_PTH)
-	model.load_state_dict(torch.load(MODEL_PTH))
+model.load_state_dict(torch.load('models/lothru.pth'))
 optimizer = optim.Adam(model.parameters(), lr=0.01)
 criterion = nn.MSELoss()
 	
@@ -210,7 +212,20 @@ def student_entrypoint(client_message: ClientMessage):
 
 	:return: float Your quality choice. Must be one in the range [0 ... quality_levels - 1] inclusive.
 	"""
+	selected_bitrate = None # what we will eventually select
 
+	if start[0]: #at the start collect data
+		prediction_buffer.add_data(client_message, first=True)
+		start[0] = False
+		return 0
+	else:
+		prediction_buffer.add_data(client_message)
+
+	#Estimate the Throughput domain
+	average_throughput = prediction_buffer.get_sliding_average_throughput(300)
+
+
+	#Train the current model if enough data is available
 	if len(prediction_buffer) > 1:
 		for i in range(TRAIN_PER_STEP):
 			optimizer.zero_grad()
@@ -220,20 +235,20 @@ def student_entrypoint(client_message: ClientMessage):
 			loss.backward()
 			optimizer.step()
 
+		if average_throughput < 1.65:
+			model.load_state_dict(torch.load('models/lothru.pth'))
+		elif 1.65 <= average_throughput and average_throughput < 3.1:
+			model.load_state_dict(torch.load('models/mithru.pth'))
+		else:
+			model.load_state_dict(torch.load('models/hithru.pth'))
 		currentThroughputs = prediction_buffer.get_most_recent_throughputs()
 		upcomingThroughputPredictions = model(currentThroughputs, THROUGHPUT_OUT_SIZE)
 		selected_bitrate, throughput_prediction = extract_bitrate(upcomingThroughputPredictions, client_message.quality_bitrates, client_message.buffer_seconds_per_chunk)
+		print(1)
 	else:
-		selected_bitrate = client_message.quality_bitrates[1]
-		throughput_prediction = selected_bitrate / client_message.buffer_seconds_per_chunk
+		selected_bitrate = average_throughput * client_message.buffer_seconds_per_chunk
+		selected_bitrate = map_to_nearest_option(selected_bitrate, [option for option in client_message.quality_bitrates if option <= selected_bitrate])
+		print(2)
 
-	if start[0]:
-		start[0] = False
-	else:
-		prediction_buffer.add_data(client_message, throughput_prediction)
-
-	if len(client_message.upcoming_quality_bitrates) == 0:
-		if SAVE_MODEL:
-			torch.save(model.state_dict(), MODEL_PTH)
-
+	print('ret')
 	return client_message.quality_bitrates.index(selected_bitrate)

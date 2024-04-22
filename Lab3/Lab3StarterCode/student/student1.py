@@ -74,7 +74,7 @@ def calc_QOE(bitrate, Bk, Ct, client_message: ClientMessage, prev_rate):
 	# clean up if my first predicted throughput is not 0
 	if Ct != 0:
 		rebuffer_qual = client_message.rebuffering_coefficient * max(bitrate/Ct - Bk,0) # this needs changed
-		print(rebuffer_qual)
+		#print(rebuffer_qual)
 	else:
 		rebuffer_qual = 0
 	qoe = chunk_qual - variation_qual - rebuffer_qual

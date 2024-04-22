@@ -1,4 +1,5 @@
 from typing import List
+from matplotlib import pyplot as plt
 
 # Adapted from code by Zach Peats
 
@@ -59,27 +60,27 @@ class ClientMessage:
 # ======================================================================================================================
 
 ################ MY CODE
-
+import os
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import random
-import os
 
-THROUGHPUT_IN_SIZE = 5
+THROUGHPUT_IN_SIZE = 7
 THROUGHPUT_OUT_SIZE = 5
 TRAIN_PER_STEP = 3
 PLOT = False
 LOAD_MODEL = True
 SAVE_MODEL = True
-MODEL_PTH = os.path.join('models', 'mithru.pth')
+MODEL_PTH = os.path.join('models', 'BB.pth')
+
 
 class Prediction_Buffer():
 	def __init__(self):
 		self.throughputs = []
 		self.buffer_capacities = []
 
-	def add_data(self, client_message, throughput_prediction, first=False):
+	def add_data(self, client_message, first=False):
 		if not first:
 			self.throughputs.append(client_message.previous_throughput)
 		self.buffer_capacities.append(client_message.buffer_seconds_until_empty)
@@ -89,15 +90,15 @@ class Prediction_Buffer():
 
 		prior_throughputs = self.throughputs[rand_idx:rand_idx+THROUGHPUT_IN_SIZE]
 		next_throughputs = self.throughputs[rand_idx+THROUGHPUT_IN_SIZE:rand_idx+THROUGHPUT_IN_SIZE+THROUGHPUT_OUT_SIZE]
+		buffers = self.buffer_capacities[rand_idx:rand_idx+THROUGHPUT_IN_SIZE]
 
-		return torch.tensor(prior_throughputs), torch.tensor(next_throughputs)
+		return prior_throughputs, next_throughputs, buffers
 	
 	def get_most_recent_throughputs(self):
-		return torch.tensor(self.throughputs[-THROUGHPUT_IN_SIZE:])
+		return self.throughputs[-THROUGHPUT_IN_SIZE:], self.buffer_capacities[-THROUGHPUT_IN_SIZE:]
 	
 	def __len__(self):
 		return max(0, len(self.throughputs) - (THROUGHPUT_IN_SIZE + THROUGHPUT_OUT_SIZE))
-	
 
 class Encoder(nn.Module):
     def __init__(self, input_size, hidden_size):
@@ -129,7 +130,6 @@ class Seq2Seq(nn.Module):
         self.output_size = output_size
         
     def forward(self, input_seq, target_seq_len):
-        input_seq = input_seq.unsqueeze(0).unsqueeze(-1)
         hidden, cell = self.encoder(input_seq)
         # Start with an initial input (usually zero) to the decoder
         decoder_input = torch.zeros((input_seq.size(0), 1, self.output_size), device=input_seq.device)
@@ -144,7 +144,7 @@ class Seq2Seq(nn.Module):
 
 # Parameters
 input_size = 1  # Size of each input item
-output_size = 1  # Size of each output item
+output_size = 1 # Size of each output item
 hidden_size = 128  # Number of features in the hidden state
 
 # Model initialization
@@ -153,8 +153,8 @@ if LOAD_MODEL:
 	if not os.path.exists(MODEL_PTH):
 		torch.save(model.state_dict(), MODEL_PTH)
 	model.load_state_dict(torch.load(MODEL_PTH))
+
 optimizer = optim.Adam(model.parameters(), lr=0.01)
-criterion = nn.MSELoss()
 	
 prediction_buffer = Prediction_Buffer()
 
@@ -171,25 +171,106 @@ def map_to_nearest_option(value, options):
 			closest_option = options
 	return closest_option
 
-def extract_bitrate(tensor, bitrate_options, V):
-	tensorlist = tensor.detach().tolist()[0]
-	return V * map_to_nearest_option(tensorlist[0], bitrate_options), tensorlist[0]
+def map_output_tensor_to_nearest_option(tensor, options_series):
+	diff = []
+	bitrate_list = tensor.clone().detach().tolist()[0]
+	for bitrate in bitrate_list:
+		mapped_bitrate = map_to_nearest_option(bitrate, options_series)
+		# map = bitrate + diff
+		# map - bitrate = diff
+		diff.append(mapped_bitrate - bitrate)
+	return torch.tensor(diff, requires_grad=True).view(tensor.size())
 
-def calculate_QoE(selected_Qs, buffer_capacities, throughputs, client_message):
-	avg_Q = sum(selected_Qs) / len(selected_Qs)
-	var_Q = 0
-	for i in range(len(selected_Qs)-1):
-		var_Q += abs(selected_Qs[i] - selected_Qs[i+1])
-	buffering = 0 
-	for i in range(len(selected_Qs)):
-		buffering += max(selected_Qs[i] / throughputs[i] - buffer_capacities[i], 0)
+
+def extract_bitrate(tensor, bitrate_options):
+	tensorlist = tensor.detach().tolist()
+	return map_to_nearest_option(tensorlist[0][0], bitrate_options)
+
+def tensor_to_float(tensor):
+	return float(tensor.detach())
+
+def tensor_QoE(selected_bitrates, throughputs_list, buffer, V, client_message):
+	avg_Q = torch.sum(selected_bitrates)
+	var_Q = torch.sum(torch.abs(selected_bitrates[1:] - selected_bitrates[:-1]))
 	
-	return client_message.quality_coefficient * avg_Q + client_message.variation_coefficient * var_Q + client_message.rebuffering_coefficient
+	bitrate_list = selected_bitrates.clone().detach().tolist()[0]
+	download_times_list = [bitrate/throughput for bitrate, throughput in zip(bitrate_list, throughputs_list)]
+	buffers_list = [buffer]
+	for download_time in download_times_list:
+		new_buffer = max(buffers_list[-1] - download_time + V, 0)
+		buffers_list.append(new_buffer)
+	buffers = torch.tensor(buffers_list[:-1]).view(selected_bitrates.size())
+
+	throughputs = torch.tensor(throughputs_list).view(selected_bitrates.size())
+
+	# download time - buffer
+	#If this value is greater than 0, rebuffering is occuring
+	#if it is negative, the buffer is refilling
+	download_times = selected_bitrates / throughputs
+	buffering = download_times - buffers
+	# if (buffering > 0).any():
+	# 	print(f"DL {download_times}\n - BUFF {buffers}\n = BUFFERING {buffering}")
+	buffering = torch.where(buffering >= 0, buffering, torch.tensor(0.0, requires_grad=True))
+	buffering = torch.sum(buffering)
+
+	QoE = client_message.quality_coefficient * avg_Q - 0*client_message.variation_coefficient * var_Q - client_message.rebuffering_coefficient * buffering
+	return QoE, avg_Q, var_Q, buffering
+
+if PLOT:
+	# Enable interactive mode
+	os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
+	plt.ioff()
+	plt.ion()
+
+	# Create a figure and an axes.
+	fig, ax = plt.subplots()
+
+	# Initialize three line objects (one in each plot)
+	line1, = ax.plot([], [], label='Avg_Q')  # Line for the first dataset
+	line2, = ax.plot([], [], label='Var_Q')  # Line for the second dataset
+	line3, = ax.plot([], [], label='Buffer')  # Line for the third dataset
+	ax.legend()
+
+	# Setting the axes limits
+	# ax.set_xlim(0, 100)
+	# ax.set_ylim(0, 15)
+
+	# Data lists for each line
+	x = [0]
+	x_data = []
+	y_data1 = []
+	y_data2 = []
+	y_data3 = []
+
+# Update the plot with new data
+def update_plot(y1, y2, y3):
+    y1 = tensor_to_float(y1)
+    y2 = tensor_to_float(y2)
+    y3 = tensor_to_float(y3)
+	
+    x_data.append(x[0])
+    x[0] += 1
+    y_data1.append(y1)
+    y_data2.append(y2)
+    y_data3.append(y3)
+    line1.set_xdata(x_data)
+    line1.set_ydata(y_data1)
+    line2.set_xdata(x_data)
+    line2.set_ydata(y_data2)
+    line3.set_xdata(x_data)
+    line3.set_ydata(y_data3)
+
+
+def draw_plot():
+    ax.relim()  # Recompute the ax.dataLim
+    ax.autoscale_view()  # Update ax.viewLim using the new dataLim
+    
+    fig.canvas.draw()
+    fig.canvas.flush_events()
 
 start = [True]
 
 def student_entrypoint(client_message: ClientMessage):
-	
 	"""
 	Your mission, if you choose to accept it, is to build an algorithm for chunk bitrate selection that provides
 	the best possible experience for users streaming from your service.
@@ -214,26 +295,40 @@ def student_entrypoint(client_message: ClientMessage):
 	if len(prediction_buffer) > 1:
 		for i in range(TRAIN_PER_STEP):
 			optimizer.zero_grad()
-			inputThroughputs, observedThroughputs = prediction_buffer.sample_random()
-			predictedThroughputs = model(inputThroughputs, THROUGHPUT_OUT_SIZE)
-			loss = criterion(predictedThroughputs, observedThroughputs)
-			loss.backward()
+			inputThroughputs, observedThroughputs, buffers = prediction_buffer.sample_random()
+		
+			input = torch.tensor(buffers).unsqueeze(0).unsqueeze(-1)
+			selected_bitrates = model(input, THROUGHPUT_OUT_SIZE)
+			#print(selected_bitrates, "\n", client_message.quality_bitrates)
+			diff = map_output_tensor_to_nearest_option(selected_bitrates, client_message.quality_bitrates)
+			#print(diff)
+			#selected_bitrates += diff
+			#print(selected_bitrates)
+			QoE, avg_q, var_q, buffering = tensor_QoE(selected_bitrates, observedThroughputs, buffers[-1], client_message.buffer_seconds_per_chunk, client_message)
+			if PLOT:
+				update_plot(avg_q, var_q, buffering)
+			(-QoE).backward()
 			optimizer.step()
+		if PLOT:
+			draw_plot()
 
-		currentThroughputs = prediction_buffer.get_most_recent_throughputs()
-		upcomingThroughputPredictions = model(currentThroughputs, THROUGHPUT_OUT_SIZE)
-		selected_bitrate, throughput_prediction = extract_bitrate(upcomingThroughputPredictions, client_message.quality_bitrates, client_message.buffer_seconds_per_chunk)
+		currentThroughputs, currentBuffers = prediction_buffer.get_most_recent_throughputs()
+		input = torch.stack((torch.tensor(currentThroughputs), torch.tensor(currentBuffers)), dim=1)
+		input = input.unsqueeze(0)
+		upcomingThroughputPredictions = model(input, THROUGHPUT_OUT_SIZE)
+		selected_bitrate = extract_bitrate(upcomingThroughputPredictions, client_message.quality_bitrates)
 	else:
-		selected_bitrate = client_message.quality_bitrates[1]
-		throughput_prediction = selected_bitrate / client_message.buffer_seconds_per_chunk
+		selected_bitrate = client_message.quality_bitrates[0]
 
 	if start[0]:
 		start[0] = False
 	else:
-		prediction_buffer.add_data(client_message, throughput_prediction)
-
+		prediction_buffer.add_data(client_message) 
+	
+	#IF this is the last endpoint
 	if len(client_message.upcoming_quality_bitrates) == 0:
 		if SAVE_MODEL:
 			torch.save(model.state_dict(), MODEL_PTH)
+	
 
 	return client_message.quality_bitrates.index(selected_bitrate)
