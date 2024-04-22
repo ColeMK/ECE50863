@@ -1,0 +1,57 @@
+{
+    "lo_avg_lo_var": {
+        "QoE": 0.06739460761372153,
+        "Total Quality": 126,
+        "Total Variation": 48,
+        "Rebuffer Time": 23.48658609754007
+    },
+    "mi_avg_lo_var": {
+        "QoE": 1.8125122584131554,
+        "Total Quality": 265,
+        "Total Variation": 50,
+        "Rebuffer Time": 5.851196279906979
+    },
+    "hi_avg_lo_var": {
+        "QoE": 3.1726638772663875,
+        "Total Quality": 391,
+        "Total Variation": 20,
+        "Rebuffer Time": 0.4666666666666668
+    },
+    "lo_avg_mi_var": {
+        "QoE": 0.22101211014382427,
+        "Total Quality": 107,
+        "Total Variation": 50,
+        "Rebuffer Time": 13.89726320945325
+    },
+    "mi_avg_mi_var": {
+        "QoE": 1.139755732132848,
+        "Total Quality": 202,
+        "Total Variation": 42,
+        "Rebuffer Time": 11.199797502531172
+    },
+    "hi_avg_mi_var": {
+        "QoE": 3.355648535564874,
+        "Total Quality": 426,
+        "Total Variation": 26,
+        "Rebuffer Time": 2.999999999999386
+    },
+    "lo_avg_hi_var": {
+        "QoE": 0.4296807013651791,
+        "Total Quality": 154,
+        "Total Variation": 60,
+        "Rebuffer Time": 18.163289046715274
+    },
+    "mi_avg_hi_var": {
+        "QoE": 1.7467896312643822,
+        "Total Quality": 267,
+        "Total Variation": 60,
+        "Rebuffer Time": 7.0646597659765815
+    },
+    "hi_avg_hi_var": {
+        "QoE": 3.185495118549512,
+        "Total Quality": 402,
+        "Total Variation": 40,
+        "Rebuffer Time": 0.33333333333333326
+    },
+    "overall": 1.6812169524793203
+}
